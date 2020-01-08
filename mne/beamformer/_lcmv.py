@@ -26,8 +26,9 @@ from ._compute_beamformer import (
 
 @verbose
 def make_lcmv(info, forward, data_cov, reg=0.05, noise_cov=None, label=None,
-              pick_ori=None, rank='info', weight_norm='unit-noise-gain',
-              reduce_rank=False, depth=None, verbose=None):
+              pick_ori=None, rank='info', inversion='matrix',
+              weight_norm='unit-noise-gain', reduce_rank=False,
+              normalize_fwd=False, verbose=None):
     """Compute LCMV spatial filter.
 
     Parameters
@@ -62,11 +63,25 @@ def make_lcmv(info, forward, data_cov, reg=0.05, noise_cov=None, label=None,
             'vector'
                 Keeps the currents for each direction separate
     %(rank_info)s
+    inversion : 'single' | 'matrix'
+        This determines how the beamformer deals with source spaces in "free"
+        orientation. Such source spaces define three orthogonal dipoles at each
+        source point. When ``inversion='single'``, each dipole is considered
+        as an individual source and the corresponding spatial filter is
+        computed for each dipole separately. When ``inversion='matrix'``, all
+        three dipoles at a source vertex are considered as a group and the
+        spatial filters are computed jointly using a matrix inversion. While
+        ``inversion='single'`` is more stable, ``inversion='matrix'`` is more
+        precise. See section 5 of [3]_.  Defaults to 'matrix'.
     weight_norm : 'unit-noise-gain' | 'nai' | None
         If 'unit-noise-gain', the unit-noise gain minimum variance beamformer
         will be computed (Borgiotti-Kaplan beamformer) [2]_,
         if 'nai', the Neural Activity Index [1]_ will be computed,
         if None, the unit-gain LCMV beamformer [2]_ will be computed.
+    normalize_fwd : bool
+        Whether to normalize the forward solution. Defaults to ``False``. Note
+        that this normalization is not required when weight normalization
+        (``weight_norm``) is used.
     reduce_rank : bool
         If True, the rank of the leadfield will be reduced by 1 for each
         spatial location. Setting reduce_rank to True is typically necessary
@@ -121,6 +136,10 @@ def make_lcmv(info, forward, data_cov, reg=0.05, noise_cov=None, label=None,
            Biomedical Engineering (1997) vol. 44 (9) pp. 867--880
     .. [2] Sekihara & Nagarajan. Adaptive spatial filters for electromagnetic
            brain imaging (2008) Springer Science & Business Media
+    .. [3] van Vliet, et al. (2018) Analysis of functional connectivity and
+           oscillatory power using DICS: from raw MEG data to group-level
+           statistics in Python. bioRxiv, 245530.
+           https://doi.org/10.1101/245530
     """
     # check number of sensor types present in the data and ensure a noise cov
     info = _simplify_info(info)
@@ -144,12 +163,22 @@ def make_lcmv(info, forward, data_cov, reg=0.05, noise_cov=None, label=None,
     logger.info('Making LCMV beamformer with rank %s' % (rank,))
     del data_rank
     _check_option('weight_norm', weight_norm, ['unit-noise-gain', 'nai', None])
-    depth = _check_depth(depth, 'depth_sparse')
+
+    # Determine how to normalize the leadfield
+    if normalize_fwd:
+        if inversion == 'single':
+            combine_xyz = False
+        else:
+            combine_xyz = 'fro'
+        exp = 1.  # turn on depth weighting with exponent 1
+    else:
+        exp = None  # turn off depth weighting entirely
+        combine_xyz = False
 
     is_free_ori, info, proj, vertno, G, whitener, nn, orient_std = \
         _prepare_beamformer_input(
             info, forward, label, pick_ori, noise_cov=noise_cov, rank=rank,
-            pca=False, **depth)
+            pca=False, combine_xyz=combine_xyz, exp=exp)
     ch_names = list(info['ch_names'])
 
     data_cov = pick_channels_cov(data_cov, include=ch_names)
@@ -174,8 +203,8 @@ def make_lcmv(info, forward, data_cov, reg=0.05, noise_cov=None, label=None,
     # compute spatial filter
     n_orient = 3 if is_free_ori else 1
     W = _compute_beamformer(G, Cm, reg, n_orient, weight_norm,
-                            pick_ori, reduce_rank, rank_int,
-                            inversion='matrix', nn=nn, orient_std=orient_std)
+                            pick_ori, reduce_rank, rank=rank_int,
+                            inversion=inversion, nn=nn, orient_std=orient_std)
 
     # get src type to store with filters for _make_stc
     src_type = _get_src_type(forward['src'], vertno)
