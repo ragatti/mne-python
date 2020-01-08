@@ -8,9 +8,10 @@
 # License: BSD (3-clause)
 import numpy as np
 
+from ..io.pick import pick_info
 from ..utils import (logger, verbose, warn, _check_one_ch_type,
                      _check_channels_spatial_filter, _check_rank,
-                     _check_option)
+                     _check_option, _check_info_inv)
 from ..forward import _subject_from_forward
 from ..minimum_norm.inverse import combine_xyz, _check_reference
 from ..source_estimate import _make_stc, _get_src_type
@@ -21,8 +22,8 @@ from ._compute_beamformer import (_check_proj_match, _prepare_beamformer_input,
 
 
 @verbose
-def make_dics(info, forward, csd, reg=0.05, label=None, pick_ori=None,
-              rank=None, inversion='single', weight_norm=None,
+def make_dics(info, forward, csd, reg=0.05, noise_csd=None, label=None,
+              pick_ori=None, rank=None, inversion='single', weight_norm=None,
               normalize_fwd=True, real_filter=False, reduce_rank=False,
               verbose=None):
     """Compute a Dynamic Imaging of Coherent Sources (DICS) spatial filter.
@@ -48,6 +49,14 @@ def make_dics(info, forward, csd, reg=0.05, label=None, pick_ori=None,
     reg : float
         The regularization to apply to the cross-spectral density before
         computing the inverse.
+    noise_csd : instance of CrossSpectralDensity | None
+        Noise cross-spectral density (CSD) matrices. If provided, whitening
+        will be done. The noise CSDs need to have been computed for the same
+        frequencies as the data CSDs. Providing noise CSDs is mandatory if you
+        mix sensor types, e.g. gradiometers with magnetometers or EEG with
+        MEG.
+
+        .. versionadded:: 0.20
     label : Label | None
         Restricts the solution to a given label.
     pick_ori : None | 'normal' | 'max-power'
@@ -186,6 +195,9 @@ def make_dics(info, forward, csd, reg=0.05, label=None, pick_ori=None,
     _check_option('inversion', inversion, ['single', 'matrix'])
     _check_option('weight_norm', weight_norm, ['unit-noise-gain', 'nai', None])
 
+    picks = _check_info_inv(info, forward)
+    info = pick_info(info, picks)
+
     # Leadfield rank and optional rank reduction
     # (to deal with problems with complex eigenvalues within the computation
     # of the optimal orientation when using pinv if the leadfield was only
@@ -218,48 +230,61 @@ def make_dics(info, forward, csd, reg=0.05, label=None, pick_ori=None,
         exp = None  # turn off depth weighting entirely
         combine_xyz = False
 
-    _check_one_ch_type('dics', info, forward)
+    _check_one_ch_type('dics', info, forward, csd, noise_csd)
 
     # pick info, get gain matrix, etc.
-    _, info, proj, vertices, G, _, nn, orient_std = _prepare_beamformer_input(
-        info, forward, label, pick_ori,
-        combine_xyz=combine_xyz, exp=exp)
     subject = _subject_from_forward(forward)
-    src_type = _get_src_type(forward['src'], vertices)
-    del forward
     ch_names = list(info['ch_names'])
 
     csd_picks = [csd.ch_names.index(ch) for ch in ch_names]
 
+    if noise_csd is not None:
+        if len(noise_csd.frequencies) > 1:
+            noise_csd = noise_csd.mean()
+        noise_csd = noise_csd.get_data(as_cov=True)
+        if real_filter:
+            noise_csd['data'] = noise_csd['data'].real
+
+    _, _, proj, vertices, G, whitener, nn, orient_std = \
+        _prepare_beamformer_input(
+            info, forward, label, pick_ori, noise_csd,
+            combine_xyz=combine_xyz, exp=exp)
+
     logger.info('Computing DICS spatial filters...')
     Ws = []
+    whiteners = []
     for i, freq in enumerate(frequencies):
         if n_freqs > 1:
             logger.info('    computing DICS spatial filter at %sHz (%d/%d)' %
                         (freq, i + 1, n_freqs))
 
         Cm = csd.get_data(index=i)
-
         if real_filter:
             Cm = Cm.real
 
         # Ensure the CSD is in the same order as the leadfield
         Cm = Cm[csd_picks, :][:, csd_picks]
 
+        # Whiten the CSD
+        Cm = np.dot(whitener, np.dot(Cm, whitener.conj().T))
+
         # compute spatial filter
         W = _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
                                 reduce_rank, rank=rank, inversion=inversion,
                                 nn=nn, orient_std=orient_std)
         Ws.append(W)
+        whiteners.append(whitener)
 
     Ws = np.array(Ws)
+    whiteners = np.array(whiteners)
 
+    src_type = _get_src_type(forward['src'], vertices)
     filters = Beamformer(
         kind='DICS', weights=Ws, csd=csd, ch_names=ch_names, proj=proj,
         vertices=vertices, subject=subject, pick_ori=pick_ori,
         inversion=inversion, weight_norm=weight_norm,
         normalize_fwd=bool(normalize_fwd), src_type=src_type,
-        n_orient=n_orient if pick_ori is None else 1)
+        n_orient=n_orient if pick_ori is None else 1, whiteners=whiteners)
 
     return filters
 
@@ -482,6 +507,10 @@ def apply_dics_csd(csd, filters, verbose=None):
         Cm = csd.get_data(index=i)
         Cm = Cm[csd_picks, :][:, csd_picks]
         W = filters['weights'][i]
+
+        # Whiten the CSD
+        whitener = filters['whiteners'][i]
+        Cm = np.dot(whitener, np.dot(Cm, whitener.conj().T))
 
         source_power[:, i] = _compute_power(Cm, W, n_orient)
 
