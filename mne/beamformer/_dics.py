@@ -225,7 +225,7 @@ def make_dics(info, forward, csd, reg=0.05, noise_csd=None, label=None,
         exp = None  # turn off depth weighting entirely
         combine_xyz = False
 
-    _check_one_ch_type('dics', info, forward, csd, noise_csd)
+    # _check_one_ch_type('dics', info, forward, csd, noise_csd)
 
     # pick info, get gain matrix, etc.
     subject = _subject_from_forward(forward)
