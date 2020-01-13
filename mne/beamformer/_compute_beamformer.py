@@ -64,6 +64,7 @@ def _prepare_beamformer_input(info, forward, label=None, pick_ori=None,
         noise_cov = make_ad_hoc_cov(info, std=1.)
     forward, info_picked, gain, _, orient_prior, _, trace_GRGT, noise_cov, \
         whitener = _prepare_forward(
+            #forward, info, noise_cov, 'auto', loose, rank=rank, pca=pca,
             forward, info, noise_cov, 'auto', loose, rank=rank, pca=pca,
             use_cps=True, exp=exp, limit_depth_chs=limit_depth_chs,
             combine_xyz=combine_xyz, limit=limit,

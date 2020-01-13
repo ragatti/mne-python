@@ -450,7 +450,7 @@ def _check_one_ch_type(method, info, forward, data_cov=None, noise_cov=None):
     from ..cov import make_ad_hoc_cov, Covariance
     from ..time_frequency.csd import CrossSpectralDensity
     from ..io.pick import pick_info
-    from ..channels.channels import _contains_ch_type
+    # from ..channels.channels import _contains_ch_type
     if isinstance(data_cov, CrossSpectralDensity):
         _validate_type(noise_cov, [None, CrossSpectralDensity], 'noise_cov')
         # FIXME
@@ -461,13 +461,13 @@ def _check_one_ch_type(method, info, forward, data_cov=None, noise_cov=None):
         picks = _check_info_inv(info, forward, data_cov=data_cov,
                                 noise_cov=noise_cov)
         info_pick = pick_info(info, picks)
-    ch_types =\
-        [_contains_ch_type(info_pick, tt) for tt in ('mag', 'grad', 'eeg')]
-    if sum(ch_types) > 1:
-        if noise_cov is None:
-            raise ValueError('Source reconstruction with several sensor types'
-                             ' requires a noise covariance matrix to be '
-                             'able to apply whitening.')
+    # ch_types =\
+    #     [_contains_ch_type(info_pick, tt) for tt in ('mag', 'grad', 'eeg')]
+    # if sum(ch_types) > 1:
+    #     if noise_cov is None:
+    #         raise ValueError('Source reconstruction with several sensor types'
+    #                          ' requires a noise covariance matrix to be '
+    #                          'able to apply whitening.')
     if noise_cov is None:
         noise_cov = make_ad_hoc_cov(info_pick, std=1.)
     else:
