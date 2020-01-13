@@ -391,7 +391,7 @@ def plot_evoked_field(evoked, surf_maps, time=None, time_label='t = %0.0f ms',
 
     if '%' in time_label:
         time_label %= (1e3 * evoked.times[time_idx])
-    renderer.text2d(x=0.01, y=0.01, text=time_label)
+    renderer.text2d(x_window=0.01, y_window=0.01, text=time_label)
     renderer.set_camera(azimuth=10, elevation=60)
     renderer.show()
     return renderer.scene()
@@ -1650,6 +1650,9 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
     _check_option('backend', backend, ['auto', 'matplotlib', 'mayavi'])
     plot_mpl = backend == 'matplotlib'
     if not plot_mpl:
+        if not check_version('surfer', '0.9'):
+            raise RuntimeError('This function requires pysurfer version '
+                               '>= 0.9')
         try:
             from mayavi import mlab  # noqa: F401
         except ImportError:
@@ -1698,6 +1701,8 @@ def plot_source_estimates(stc, subject=None, surface='inflated', hemi='lh',
         data = getattr(stc, hemi + '_data')
         vertices = stc.vertices[hemi_idx]
         if len(data) > 0:
+            if transparent is None:
+                transparent = True
             kwargs = {
                 "array": data, "colormap": colormap,
                 "vertices": vertices,
@@ -2308,8 +2313,27 @@ def plot_vector_source_estimates(stc, subject=None, hemi='lh', colormap='hot',
                                scale_factor=scale_factor,
                                min=scale_pts[0], max=scale_pts[2],
                                **ad_kwargs)
+            # depth peeling patch
+            if brain_alpha < 1.0:
+                for ff in brain._figures:
+                    for f in ff:
+                        if f.scene is not None:
+                            f.scene.renderer.use_depth_peeling = True
         brain.scale_data_colormap(fmin=scale_pts[0], fmid=scale_pts[1],
                                   fmax=scale_pts[2], **sd_kwargs)
+    if scale_factor is None:
+        # Compute the width of the brain
+        width = np.mean([np.ptp(brain.geo[hemi].coords[:, 1])
+                         for hemi in hemis])
+        for hemi in hemis:
+            # Retrieve the current hemi
+            for b in brain._brain_list:
+                if b['hemi'] == hemi:
+                    found_hemi = b['brain']
+            # Configure the glyphs scale directly
+            for layer in found_hemi.data.values():
+                glyphs = layer['glyphs']
+                glyphs.glyph.glyph.scale_factor = width * 0.1
 
     if time_viewer:
         TimeViewer(brain)
@@ -2736,7 +2760,7 @@ def plot_sensors_connectivity(info, con, picks=None):
         tube = renderer.tube(origin=np.c_[x1, y1, z1],
                              destination=np.c_[x2, y2, z2],
                              scalars=np.c_[val, val],
-                             vmin=vmin, vmax=vmax, radius=0.001,
+                             vmin=vmin, vmax=vmax,
                              reverse_lut=True)
 
     renderer.scalarbar(source=tube, title='Phase Lag Index (PLI)')

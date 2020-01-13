@@ -142,7 +142,7 @@ class _Brain(object):
                  foreground=None, figure=None, subjects_dir=None,
                  views=['lateral'], offset=True, show_toolbar=False,
                  offscreen=False, interaction=None, units='mm'):
-        from ..backends.renderer import _Renderer, _check_figure
+        from ..backends.renderer import _Renderer, _check_3d_figure
         from matplotlib.colors import colorConverter
 
         if interaction is not None:
@@ -193,7 +193,7 @@ class _Brain(object):
         offset = None if (not offset or hemi != 'both') else 0.0
 
         if figure is not None and not isinstance(figure, int):
-            _check_figure(figure)
+            _check_3d_figure(figure)
         self._renderer = _Renderer(size=fig_size, bgcolor=background,
                                    shape=(n_row, n_col), fig=figure)
 
@@ -438,7 +438,7 @@ class _Brain(object):
                                        vmax=dt_max,
                                        scalars=act_data)
             if array.ndim >= 2 and callable(time_label):
-                self._renderer.text2d(x=0.95, y=y_txt,
+                self._renderer.text2d(x_window=0.95, y_window=y_txt,
                                       size=time_label_size,
                                       text=time_label(time[time_idx]),
                                       justification='right')
@@ -510,6 +510,7 @@ class _Brain(object):
                                      % filepath)
             label = read_label(filepath)
             ids = label.vertices
+            scalars = label.values
         else:
             # try to extract parameters from label instance
             try:
@@ -536,8 +537,8 @@ class _Brain(object):
                                  '"values"')
             hemi = self._check_hemi(hemi)
 
-            if scalar_thresh is not None:
-                ids = ids[scalars >= scalar_thresh]
+        if scalar_thresh is not None:
+            ids = ids[scalars >= scalar_thresh]
 
         # XXX: add support for label_name
         self._label_name = label_name
@@ -553,17 +554,26 @@ class _Brain(object):
                 ci = 0
             else:
                 ci = 0 if hemi == 'lh' else 1
+            views_dict = lh_views_dict if hemi == 'lh' else rh_views_dict
             self._renderer.subplot(ri, ci)
-            self._renderer.mesh(x=self.geo[hemi].coords[:, 0],
-                                y=self.geo[hemi].coords[:, 1],
-                                z=self.geo[hemi].coords[:, 2],
-                                triangles=self.geo[hemi].faces,
-                                scalars=label,
-                                color=None,
-                                colormap=ctable,
-                                backface_culling=False)
-            self._renderer.set_camera(azimuth=0.,
-                                      elevation=90.)
+            if borders:
+                surface = {
+                    'rr': self.geo[hemi].coords,
+                    'tris': self.geo[hemi].faces,
+                }
+                self._renderer.contour(surface, label, [1.0], color=color,
+                                       kind='tube')
+            else:
+                self._renderer.mesh(x=self.geo[hemi].coords[:, 0],
+                                    y=self.geo[hemi].coords[:, 1],
+                                    z=self.geo[hemi].coords[:, 2],
+                                    triangles=self.geo[hemi].faces,
+                                    scalars=label,
+                                    color=None,
+                                    colormap=ctable,
+                                    backface_culling=False)
+            self._renderer.set_camera(azimuth=views_dict[v].azim,
+                                      elevation=views_dict[v].elev)
 
     def add_foci(self, coords, coords_as_verts=False, map_surface=None,
                  scale_factor=1, color="white", alpha=1, name=None,
@@ -656,7 +666,7 @@ class _Brain(object):
         # are implemented
         # _check_option('name', name, [None])
 
-        self._renderer.text2d(x=x, y=y, text=text, color=color,
+        self._renderer.text2d(x_window=x, y_window=y, text=text, color=color,
                               size=font_size, justification=justification)
 
     def remove_labels(self, labels=None):

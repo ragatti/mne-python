@@ -28,7 +28,7 @@ class _Figure(object):
                  title='PyVista Scene',
                  size=(600, 600),
                  shape=(1, 1),
-                 background_color=(0., 0., 0.),
+                 background_color='black',
                  smooth_shading=True,
                  off_screen=False,
                  notebook=False):
@@ -45,6 +45,7 @@ class _Figure(object):
         self.store['shape'] = shape
         self.store['off_screen'] = off_screen
         self.store['border'] = False
+        self.store['auto_update'] = False
 
     def build(self):
         with warnings.catch_warnings():
@@ -58,6 +59,7 @@ class _Figure(object):
 
         if self.plotter_class == Plotter:
             self.store.pop('title', None)
+            self.store.pop('auto_update', None)
 
         if self.plotter is None:
             plotter = self.plotter_class(**self.store)
@@ -104,10 +106,10 @@ class _Renderer(_BaseRenderer):
         Name of the window.
     """
 
-    def __init__(self, fig=None, size=(600, 600), bgcolor=(0., 0., 0.),
+    def __init__(self, fig=None, size=(600, 600), bgcolor='black',
                  name="PyVista Scene", show=False, shape=(1, 1)):
         from pyvista import OFF_SCREEN
-        from mne.viz.backends.renderer import MNE_3D_BACKEND_TEST_DATA
+        from mne.viz.backends.renderer import MNE_3D_BACKEND_TESTING
         figure = _Figure(title=name, size=size, shape=shape,
                          background_color=bgcolor, notebook=_check_notebook())
         self.font_family = "arial"
@@ -125,12 +127,12 @@ class _Renderer(_BaseRenderer):
             self.figure = fig
 
         # Enable off_screen if sphinx-gallery or testing
-        if OFF_SCREEN or MNE_3D_BACKEND_TEST_DATA:
+        if OFF_SCREEN or MNE_3D_BACKEND_TESTING:
             self.figure.store['off_screen'] = True
 
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
-            if MNE_3D_BACKEND_TEST_DATA:
+            if MNE_3D_BACKEND_TESTING:
                 from pyvista import Plotter
                 self.figure.plotter_class = Plotter
 
@@ -184,24 +186,31 @@ class _Renderer(_BaseRenderer):
                                   rng=[vmin, vmax], show_scalar_bar=False,
                                   smooth_shading=smooth_shading)
 
-    def contour(self, surface, scalars, contours, line_width=1.0, opacity=1.0,
+    def contour(self, surface, scalars, contours, width=1.0, opacity=1.0,
                 vmin=None, vmax=None, colormap=None,
-                normalized_colormap=False):
+                normalized_colormap=False, kind='line', color=None):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
             from pyvista import PolyData
-            cmap = _get_colormap_from_array(colormap, normalized_colormap)
+            if colormap is not None:
+                colormap = _get_colormap_from_array(colormap,
+                                                    normalized_colormap)
             vertices = np.array(surface['rr'])
             triangles = np.array(surface['tris'])
             n_triangles = len(triangles)
             triangles = np.c_[np.full(n_triangles, 3), triangles]
             pd = PolyData(vertices, triangles)
             pd.point_arrays['scalars'] = scalars
-            self.plotter.add_mesh(pd.contour(isosurfaces=contours,
-                                             rng=(vmin, vmax)),
+            mesh = pd.contour(isosurfaces=contours, rng=(vmin, vmax))
+            line_width = width
+            if kind == 'tube':
+                mesh = mesh.tube(radius=width)
+                line_width = 1.0
+            self.plotter.add_mesh(mesh,
                                   show_scalar_bar=False,
                                   line_width=line_width,
-                                  cmap=cmap,
+                                  color=color,
+                                  cmap=colormap,
                                   opacity=opacity,
                                   smooth_shading=self.figure.smooth_shading)
 
@@ -229,23 +238,27 @@ class _Renderer(_BaseRenderer):
                                   smooth_shading=self.figure.smooth_shading)
 
     def sphere(self, center, color, scale, opacity=1.0,
-               resolution=8, backface_culling=False):
+               resolution=8, backface_culling=False,
+               radius=None):
+        factor = 1.0 if radius is not None else scale
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
             from pyvista import PolyData
             sphere = vtk.vtkSphereSource()
             sphere.SetThetaResolution(resolution)
             sphere.SetPhiResolution(resolution)
+            if radius is not None:
+                sphere.SetRadius(radius)
             sphere.Update()
             geom = sphere.GetOutput()
             pd = PolyData(center)
             self.plotter.add_mesh(pd.glyph(orient=False, scale=False,
-                                           factor=scale, geom=geom),
+                                           factor=factor, geom=geom),
                                   color=color, opacity=opacity,
                                   backface_culling=backface_culling,
                                   smooth_shading=self.figure.smooth_shading)
 
-    def tube(self, origin, destination, radius=1.0, color=(1.0, 1.0, 1.0),
+    def tube(self, origin, destination, radius=0.001, color='white',
              scalars=None, vmin=None, vmax=None, colormap='RdBu',
              normalized_colormap=False, reverse_lut=False):
         with warnings.catch_warnings():
@@ -350,10 +363,10 @@ class _Renderer(_BaseRenderer):
                                       smooth_shading=self.figure.
                                       smooth_shading)
 
-    def text2d(self, x, y, text, size=14, color=(1.0, 1.0, 1.0),
+    def text2d(self, x_window, y_window, text, size=14, color='white',
                justification=None):
         size = 14 if size is None else size
-        position = (x, y)
+        position = (x_window, y_window)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
             actor = self.plotter.add_text(text, position=position,
@@ -373,7 +386,7 @@ class _Renderer(_BaseRenderer):
                                      'are `left`, `center` or `right` but '
                                      'got {} instead.'.format(justification))
 
-    def text3d(self, x, y, z, text, scale, color=(1.0, 1.0, 1.0)):
+    def text3d(self, x, y, z, text, scale, color='white'):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=FutureWarning)
             self.plotter.add_point_labels(points=[x, y, z],
@@ -399,7 +412,7 @@ class _Renderer(_BaseRenderer):
         return self.scene()
 
     def close(self):
-        self.plotter.close()
+        _close_3d_figure(figure=self.figure)
 
     def set_camera(self, azimuth=None, elevation=None, distance=None,
                    focalpoint=None):
@@ -407,8 +420,8 @@ class _Renderer(_BaseRenderer):
                      distance=distance, focalpoint=focalpoint)
 
     def screenshot(self, mode='rgb', filename=None):
-        return self.plotter.screenshot(transparent_background=(mode == 'rgba'),
-                                       filename=filename)
+        return _take_3d_screenshot(figure=self.figure, mode=mode,
+                                   filename=filename)
 
     def project(self, xyz, ch_names):
         xy = _3d_to_2d(self.plotter, xyz)
@@ -469,10 +482,10 @@ def _get_world_to_view_matrix(plotter):
 
 def _get_view_to_display_matrix(size):
     x, y = size
-    view_to_disp_mat = np.array([[x / 2.0,       0.,   0.,   x / 2.0],
-                                 [0.,      -y / 2.0,   0.,   y / 2.0],
-                                 [0.,            0.,   1.,        0.],
-                                 [0.,            0.,   0.,        1.]])
+    view_to_disp_mat = np.array([[x / 2.0,       0.,   0.,   x / 2.0],  # noqa: E241,E501
+                                 [0.,      -y / 2.0,   0.,   y / 2.0],  # noqa: E241,E501
+                                 [0.,            0.,   1.,        0.],  # noqa: E241,E501
+                                 [0.,            0.,   0.,        1.]])  # noqa: E241,E501
     return view_to_disp_mat
 
 
@@ -539,9 +552,32 @@ def _set_3d_view(figure, azimuth, elevation, focalpoint, distance):
 def _set_3d_title(figure, title, size=40):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
-        figure.plotter.add_text(title, font_size=32, color=(1.0, 1.0, 1.0))
+        figure.plotter.add_text(title, font_size=size, color='white')
 
 
-def _check_figure(figure):
+def _check_3d_figure(figure):
     if not isinstance(figure, _Figure):
-        raise TypeError('figure must be an instance of _Figure')
+        raise TypeError('figure must be an instance of _Figure.')
+
+
+def _close_3d_figure(figure):
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        figure.plotter.close()
+
+
+def _take_3d_screenshot(figure, mode='rgb', filename=None):
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        return figure.plotter.screenshot(
+            transparent_background=(mode == 'rgba'),
+            filename=filename)
+
+
+def _try_3d_backend():
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning)
+            import pyvista  # noqa: F401
+    except Exception:
+        pass
