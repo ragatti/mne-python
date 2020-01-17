@@ -226,6 +226,7 @@ def make_dics(info, forward, csd, reg=0.05, noise_csd=None, label=None,
     logger.info('Computing DICS spatial filters...')
     Ws = []
     whiteners = []
+    max_power_oris = []
     for i, freq in enumerate(frequencies):
         if n_freqs > 1:
             logger.info('    computing DICS spatial filter at %sHz (%d/%d)' %
@@ -242,14 +243,16 @@ def make_dics(info, forward, csd, reg=0.05, noise_csd=None, label=None,
         Cm = np.dot(whitener, np.dot(Cm, whitener.conj().T))
 
         # compute spatial filter
-        W = _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
-                                reduce_rank, rank=rank, inversion=inversion,
-                                nn=nn, orient_std=orient_std)
+        W, max_power_ori = _compute_beamformer(
+            G, Cm, reg, n_orient, weight_norm, pick_ori, reduce_rank,
+            rank=rank, inversion=inversion, nn=nn, orient_std=orient_std)
         Ws.append(W)
         whiteners.append(whitener)
+        max_power_oris.append(max_power_ori)
 
     Ws = np.array(Ws)
     whiteners = np.array(whiteners)
+    max_power_oris = np.array(max_power_oris)
 
     src_type = _get_src_type(forward['src'], vertices)
     filters = Beamformer(
@@ -257,7 +260,8 @@ def make_dics(info, forward, csd, reg=0.05, noise_csd=None, label=None,
         vertices=vertices, subject=subject, pick_ori=pick_ori,
         inversion=inversion, weight_norm=weight_norm,
         normalize_fwd=bool(normalize_fwd), src_type=src_type,
-        n_orient=n_orient if pick_ori is None else 1, whiteners=whiteners)
+        n_orient=n_orient if pick_ori is None else 1, whiteners=whiteners,
+        max_power_oris=max_power_oris)
 
     return filters
 
