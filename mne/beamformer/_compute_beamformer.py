@@ -196,6 +196,8 @@ def _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk):
     # All three entries get the same value from this operation
     Wk[:] = Wk_max[:, np.newaxis]
 
+    return max_power_ori
+
 
 @contextmanager
 def _noop_indentation_context():
@@ -299,7 +301,7 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
         if (inversion == 'matrix' and pick_ori == 'max-power' and
                 weight_norm in ['unit-noise-gain', 'nai']):
             # In this case, take a shortcut to compute the filter
-            _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk)
+            max_power_ori = _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk)
         else:
             # Compute power at the source
             Ck = np.matmul(Wk, Gk)  # np.dot for each source
@@ -360,6 +362,8 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
                 # all three entries get the same value from this operation
                 Wk[:] = np.sum(max_power_ori[:, :, np.newaxis] * Wk, axis=1,
                                keepdims=True)
+            else:
+                max_power_ori = None
     W = Wk.reshape(n_sources * n_orient, n_channels)
     del Gk, Wk, sk
 
@@ -408,7 +412,7 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
         W = W.reshape(-1, W.shape[-1])
 
     logger.info('Filter computation complete')
-    return W
+    return W, max_power_ori
 
 
 def _compute_power(Cm, W, n_orient):
