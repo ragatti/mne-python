@@ -455,15 +455,15 @@ def _check_one_ch_type(method, info, forward, data_cov=None, noise_cov=None):
     info_pick = pick_info(info, picks)
     ch_types =\
         [_contains_ch_type(info_pick, tt) for tt in ('mag', 'grad', 'eeg')]
-    if sum(ch_types) > 1:
-        if method == 'lcmv' and noise_cov is None:
-            raise ValueError('Source reconstruction with several sensor types'
-                             ' requires a noise covariance matrix to be '
-                             'able to apply whitening.')
-        if method == 'dics':
-            raise RuntimeError(
-                'The use of several sensor types with the DICS beamformer is '
-                'not supported yet.')
+    # if sum(ch_types) > 1:
+    #     if method == 'lcmv' and noise_cov is None:
+    #         raise ValueError('Source reconstruction with several sensor types'
+    #                          ' requires a noise covariance matrix to be '
+    #                          'able to apply whitening.')
+    #     if method == 'dics':
+    #         raise RuntimeError(
+    #             'The use of several sensor types with the DICS beamformer is '
+    #             'not supported yet.')
     if noise_cov is None:
         noise_cov = make_ad_hoc_cov(info_pick, std=1.)
     else:
