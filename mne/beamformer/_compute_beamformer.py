@@ -18,7 +18,7 @@ from ..io.proj import make_projector, Projection
 from ..minimum_norm.inverse import _get_vertno, _prepare_forward
 from ..source_space import label_src_vertno_sel
 from ..utils import (verbose, check_fname, _reg_pinv, _check_option, logger,
-                     _pl, _check_src_normal, check_version, _validate_type)
+                     _pl, _check_src_normal, check_version, _validate_type, warn)
 from ..time_frequency.csd import CrossSpectralDensity
 
 from ..externals.h5io import read_hdf5, write_hdf5
@@ -103,6 +103,38 @@ def _prepare_beamformer_input(info, forward, label=None, pick_ori=None,
             orient_std)
 
 
+def _sym_inv(x, reduce_rank):
+    """Symmetric inversion with optional rank reduction."""
+    s, u = np.linalg.eigh(x)
+    # mimic default np.linalg.pinv behavior
+    cutoff = 1e-15 * s[:, -1][:, np.newaxis]
+    s[s <= cutoff] = np.inf
+    if reduce_rank:
+        # These are ordered smallest to largest, so we set the first one
+        # to inf -- then the 1. / s below will turn this to zero, as needed.
+        s[:, 0] = np.inf
+    s = 1. / s
+    return np.matmul(u * s[:, np.newaxis], u.transpose(0, 2, 1))
+
+
+def _reduce_leadfield_rank(G):
+    """Reduce the rank of the leadfield."""
+    # decompose lead field
+    u, s, v = np.linalg.svd(G)
+    s[:, np.argmin(s, axis=1)] = 0.  # set the smallest singular value to 0.
+
+    # expand s to match dimension of u
+    s_full = np.zeros(G.shape)
+    # TODO: vectorize?
+    for s_full_vox, s_vox in zip(s_full, s):
+        np.fill_diagonal(s_full_vox, s_vox)
+
+    # backproject
+    G = np.matmul(u, np.matmul(s_full, v))
+
+    return G
+
+
 def _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk):
     """Compute the normalized weights in max-power orientation.
 
@@ -133,13 +165,7 @@ def _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk):
                          np.matmul(Cm_inv_sq[np.newaxis], Gk))
 
     # invert this using an eigenvalue decomposition
-    s, u = np.linalg.eigh(norm_inv)
-    if reduce_rank:
-        # These are ordered smallest to largest, so we set the first one
-        # to inf -- then the 1. / s below will turn this to zero, as needed.
-        s[:, 0] = np.inf
-    s = 1. / s
-    norm = np.matmul(u * s[:, np.newaxis], u.transpose(0, 2, 1))
+    norm = _sym_inv(norm_inv, reduce_rank)
 
     # Reapply source covariance after inversion
     norm *= sk[:, :, np.newaxis]
@@ -266,7 +292,15 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
         pinv_kwargs['hermitian'] = True
 
     # leadfield rank and optional rank reduction
-    _validate_type(reduce_rank, bool, "reduce_rank", "a boolean")
+    if reduce_rank is True:
+        reduce_rank = 'denominator'
+        warn('reduce_rank=True will reduce the rank of the denominator of the '
+             'beamformer formula. If you meant to reduce the rank of the '
+             'leadfield instead, set reduce_rank to "leadfield".')
+    _check_option('reduce_rank', reduce_rank, ('leadfield', 'denominator',
+                                               False))
+
+    # inversion of the denominator
     _check_option('inversion', inversion, ('matrix', 'single'))
     if reduce_rank and inversion == 'single':
         raise ValueError('reduce_rank cannot be used with inversion="single"; '
@@ -281,7 +315,12 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
             raise ValueError(
                 'Singular matrix detected when estimating spatial filters. '
                 'Consider reducing the rank of the forward operator by using '
-                'reduce_rank=True.')
+                'reduce_rank="leadfield" or of the beamformer denominator by '
+                'using reduce_rank="denominator".')
+
+    # rank reduction of the lead field
+    if reduce_rank == 'leadfield':
+        Gk = _reduce_leadfield_rank(Gk)
 
     with _noop_indentation_context():
         if (inversion == 'matrix' and pick_ori == 'max-power' and
@@ -309,17 +348,7 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
                     assert Ck.shape[1:] == (3, 3)
                     # Invert for all dipoles simultaneously using matrix
                     # inversion.
-                    u, s, v = np.linalg.svd(
-                        Ck, full_matrices=False, **pinv_kwargs)
-                    if reduce_rank:
-                        s[:, 2] = np.inf
-                    # mimic default np.linalg.pinv behavior
-                    cutoff = 1e-15 * s[:, 0][:, np.newaxis]
-                    s[s <= cutoff] = np.inf
-                    s = 1. / s
-                    norm = np.matmul(
-                        v.transpose(0, 2, 1),
-                        s[:, :, np.newaxis] * u.transpose((0, 2, 1)))
+                    norm = _sym_inv(Ck, reduce_rank)
                 # Reapply source covariance after inversion
                 norm *= sk[:, :, np.newaxis]
                 norm *= sk[:, np.newaxis, :]

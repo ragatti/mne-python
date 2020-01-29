@@ -82,14 +82,7 @@ def make_lcmv(info, forward, data_cov, reg=0.05, noise_cov=None, label=None,
         Whether to normalize the forward solution. Defaults to ``False``. Note
         that this normalization is not required when weight normalization
         (``weight_norm``) is used.
-    reduce_rank : bool
-        If True, the rank of the leadfield will be reduced by 1 for each
-        spatial location. Setting reduce_rank to True is typically necessary
-        if you use a single sphere model for MEG.
-
-        .. versionchanged:: 0.20
-           Support for reducing rank in all modes (previously only supported
-           ``pick='max_power'`` with weight normalization).
+    %(reduce_rank)s
     %(depth)s
 
         .. versionadded:: 0.18

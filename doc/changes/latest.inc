@@ -83,6 +83,8 @@ Changelog
 
 - Add command :ref:`gen_mne_prepare_bem_model` to quickly create a BEM solution using the linear collocation approach by `Victor Ferat`_.
 
+- Add support for reading ``.bdip`` Xfit binary dipole fit files in :func:`mne.read_dipole` by `Eric Larson`_
+
 - Allow returning vector source estimates from sparse inverse solvers through ``pick_ori='vector'`` by `Christian Brodbeck`_
 
 - Add NIRS support to :func:`mne.viz.plot_topomap` by `Robert Luke`_
@@ -92,6 +94,11 @@ Changelog
 - Allow `mne.channels.read_custom_montage` to handle fiducial points for BESA spherical (``.elp``) files by `Richard Höchenberger`_
 
 - Add function to convert events to annotations :func:`mne.annotations_from_events` by `Nicolas Barascud`_
+
+- More accurate coordinate system for Easycap montages in :func:`mne.channels.make_standard_montage` by `Christian Brodbeck`_
+
+- Add ``border`` argument to :func:`mne.viz.plot_topomap`. ``border`` controls the value of the edge points to which topomap values are extrapolated. ``border='mean'`` sets these points value to the average of their neighbours. By `Mikołaj Magnuski`_
+
 
 Bug
 ~~~
@@ -105,6 +112,8 @@ Bug
 - Fix :func:`mne.viz.plot_sensors` to always plot in head coordinate frame by `Daniel McCloy`_.
 
 - Fix :meth:`mne.io.read_raw_ctf` to set measurement date from CTF ds files by `Luke Bloy`_.
+
+- Fix :meth:`mne.io.read_raw_brainvision` when channel names have spaces by `Sebastian Major`_.
 
 - Fix :meth:`mne.io.Raw.anonymize` to correctly reset ``raw.annotations.orig_time`` by `Luke Bloy`_.
 
@@ -183,6 +192,8 @@ Bug
 - Fix support for multiple TAL (annotations) channels in BDF reader by `Clemens Brunner`_
 
 - Fix missing `brainmask` file type in :func:`mne.bem.make_watershed_bem` by changing its default value to `ws.mgz` by `Fu-Te Wong`_
+
+- Fix bug in :func:`mne.channels.make_standard_montage` which would return `easycap-M1` even when requesting `easycap-M10` by `Christian Brodbeck`_
 
 API
 ~~~
