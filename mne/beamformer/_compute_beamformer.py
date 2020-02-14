@@ -18,7 +18,7 @@ from ..io.proj import make_projector, Projection
 from ..minimum_norm.inverse import _get_vertno, _prepare_forward
 from ..source_space import label_src_vertno_sel
 from ..utils import (verbose, check_fname, _reg_pinv, _check_option, logger,
-                     _pl, _check_src_normal, check_version, warn)
+                     _pl, _check_src_normal, check_version, _validate_type, warn)
 from ..time_frequency.csd import CrossSpectralDensity
 
 from ..externals.h5io import read_hdf5, write_hdf5
@@ -64,6 +64,7 @@ def _prepare_beamformer_input(info, forward, label=None, pick_ori=None,
         noise_cov = make_ad_hoc_cov(info, std=1.)
     forward, info_picked, gain, _, orient_prior, _, trace_GRGT, noise_cov, \
         whitener = _prepare_forward(
+            #forward, info, noise_cov, 'auto', loose, rank=rank, pca=pca,
             forward, info, noise_cov, 'auto', loose, rank=rank, pca=pca,
             use_cps=True, exp=exp, limit_depth_chs=limit_depth_chs,
             combine_xyz=combine_xyz, limit=limit,
@@ -172,7 +173,30 @@ def _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk):
     power = np.matmul(norm, np.matmul(Wk, Gk))  # np.dot for each source
 
     # Determine orientation of max power
+    assert power.shape == (Wk.shape[0], 3, 3)  # sources, 3, 3
+    return _pick_max_power_ori(power, Wk, Gk, Cm_inv_sq, nn)
+
+
+def _pick_max_power_ori(power, Wk, Gk, Cm_inv, nn):
+    """Pick the orientation that maximizes output power.
+
+    Parameters
+    ----------
+    power : ndarray, shape (n_sources, 3, 3)
+        Source covariance, with power source estimate on diagonal.
+    Wk : ndarray, shape (n_sources, 3, n_channels)
+        Part of the beamformer computation, G.T @ Cm_inv.
+    Gk : ndarray, shape (n_sources, n_channels, 3)
+        The leadfield matrix.
+    Cm_inv : ndarray, shape (n_channels, n_channels)
+        The inverted covariance matrix as used in the denominator of the
+        beamformer equation, can be Cm_inv or Cm_inv_squared.
+    nn : ndarray, shape (n_sources, 3)
+        The source normals.
+    """
+    # Determine orientation of max power
     assert power.dtype in (np.float64, np.complex128)  # LCMV, DICS
+    assert power.ndim == 3 and power.shape[1:] == (3, 3)
     eig_vals, eig_vecs = np.linalg.eig(power)
     if not np.iscomplexobj(power) and np.iscomplexobj(eig_vecs):
         raise ValueError('The eigenspectrum of the leadfield is '
@@ -190,13 +214,14 @@ def _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk):
     Wk_max = np.matmul(max_power_ori[:, np.newaxis], Wk)[:, 0]
     Gk_max = np.matmul(Gk, max_power_ori[:, :, np.newaxis])
     denom = np.matmul(Gk_max.transpose(0, 2, 1),
-                      np.matmul(Cm_inv_sq[np.newaxis], Gk_max))[:, 0]
+                      np.matmul(Cm_inv[np.newaxis], Gk_max))[:, 0]
     np.sqrt(denom, out=denom)
     Wk_max /= denom
+
     # All three entries get the same value from this operation
     Wk[:] = Wk_max[:, np.newaxis]
 
-    return max_power_ori
+    return Wk, max_power_ori
 
 
 @contextmanager
@@ -301,7 +326,7 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
         if (inversion == 'matrix' and pick_ori == 'max-power' and
                 weight_norm in ['unit-noise-gain', 'nai']):
             # In this case, take a shortcut to compute the filter
-            max_power_ori = _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk)
+            Wk, max_power_ori = _normalized_weights(Wk, Gk, Cm_inv_sq, reduce_rank, nn, sk)
         else:
             # Compute power at the source
             Ck = np.matmul(Wk, Gk)  # np.dot for each source
