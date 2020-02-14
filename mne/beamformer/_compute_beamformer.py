@@ -389,6 +389,7 @@ def _compute_beamformer(G, Cm, reg, n_orient, weight_norm, pick_ori,
                                keepdims=True)
             else:
                 max_power_ori = None
+
     W = Wk.reshape(n_sources * n_orient, n_channels)
     del Gk, Wk, sk
 
