@@ -192,7 +192,7 @@ def standardize(raw):
 
 
 @verbose
-def load_bnci(dataset='001-2014' ,subjects, path=None, force_update=False, 
+def load_bnci(subject, dataset='001-2014', path=None, force_update=False, 
             update_path=None, base_url=BNCI_URL, verbose=None):  # noqa: D302
     """Get paths to local copies of BNCI Horizont 2020 dataset files.
 
